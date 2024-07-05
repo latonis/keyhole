@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 name = "rdb"
-path = "src/rdb/mod.rs"
+path = "src/rdb/lib.rs"
 
 [dependencies]
 nom = "7.1.3"
