@@ -74,16 +74,20 @@ fn main() -> io::Result<()> {
     println!("Version: {version_val} ({:X?})", version);
     let (remaining, opcode) = parse_auxiliary_fields(remaining).unwrap();
     println!("Aux Field: {:X?}", opcode);
-
-    match opcode {
-        0xFA => {
-            let (remaining, s1) = parse_rstring(remaining).unwrap();
-            dbg!(std::str::from_utf8(s1).unwrap());
-            let (remaining, s2) = parse_rstring(remaining).unwrap();
-            dbg!(std::str::from_utf8(s2).unwrap());
-        }
-        _ => {
-            todo!()
+    let mut remaining_parse = remaining;
+    loop {
+        match opcode {
+            0xFA => {
+                let (remaining, s1) = parse_rstring(remaining_parse).unwrap();
+                dbg!(std::str::from_utf8(s1).unwrap());
+                let (remaining, s2) = parse_rstring(remaining).unwrap();
+                dbg!(std::str::from_utf8(s2).unwrap());
+                remaining_parse = remaining;
+            }
+            _ => {
+                println!("Aux Field: {:X?}", opcode);
+                todo!()
+            }
         }
     }
 
