@@ -14,10 +14,16 @@ struct AuxiliaryCommand {
     opcode: u8,
 }
 
+#[derive(Default)]
+struct RedisString {
+    length: u32,
+    value: String,
+}
+
 impl<'a> RDB<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self, nom::error::Error<nom::error::ErrorKind>> {
         let (remaining, magic) = RDB::parse_magic(data).unwrap();
-        
+
         let (remaining, version) = RDB::parse_version(remaining).unwrap();
         let version = std::str::from_utf8(&version)
             .unwrap()
@@ -42,7 +48,7 @@ impl<'a> RDB<'a> {
                     break;
                 }
             }
-            aux_commands.push(AuxiliaryCommand {opcode});
+            aux_commands.push(AuxiliaryCommand { opcode });
         }
 
         Ok(RDB {
@@ -68,7 +74,7 @@ impl<'a> RDB<'a> {
     fn parse_rstring(input: &[u8]) -> IResult<&[u8], &[u8]> {
         let (mut remainder, length) = nom::number::complete::u8(input)?;
         dbg!(length);
-    
+
         dbg!(length & 0b11000000 as u8);
         let string_length: u64 = match length & 0b01000000 {
             00 => {
@@ -83,7 +89,8 @@ impl<'a> RDB<'a> {
             0x80 => {
                 // 10	Discard the remaining 6 bits. The next 4 bytes from the stream represent the length
                 let size;
-                (remainder, size) = nom::number::complete::u64(nom::number::Endianness::Big)(input)?;
+                (remainder, size) =
+                    nom::number::complete::u64(nom::number::Endianness::Big)(input)?;
 
                 dbg!(size);
                 size
@@ -94,7 +101,7 @@ impl<'a> RDB<'a> {
             }
             _ => unimplemented!(),
         };
-    
+
         take(string_length as usize)(remainder)
     }
 }
