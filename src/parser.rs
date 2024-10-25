@@ -1,4 +1,6 @@
 type Error<'a> = nom::error::Error<&'a [u8]>;
+use core::str;
+
 use nom::bytes::complete::take;
 use nom::IResult;
 
@@ -14,7 +16,7 @@ struct AuxiliaryCommand {
     opcode: u8,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct RedisString {
     length: u32,
     value: String,
@@ -23,19 +25,31 @@ struct RedisString {
 impl<'a> RDB<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self, nom::error::Error<nom::error::ErrorKind>> {
         let (remaining, magic) = RDB::parse_magic(data).unwrap();
+        println!(
+            "Magic: {}",
+            str::from_utf8(magic).expect("this should be REDIS")
+        );
 
         let (remaining, version) = RDB::parse_version(remaining).unwrap();
+        println!(
+            "Version: {}",
+            str::from_utf8(version).expect("this should be valid ascii")
+        );
+
         let version = std::str::from_utf8(&version)
             .unwrap()
             .parse::<u32>()
             .unwrap();
 
-        // println!("Aux Field: {:X?}", opcode);
         let mut remaining_parse = remaining;
         let mut aux_commands = Vec::<AuxiliaryCommand>::new();
+
         loop {
             let (remaining, opcode) = RDB::parse_auxiliary_field(remaining).unwrap();
+            println!("Aux Field: {:X?}", opcode);
+
             match opcode {
+                // Auxiliary Field
                 0xFA => {
                     let (remaining, s1) = RDB::parse_rstring(remaining_parse).unwrap();
                     dbg!(std::str::from_utf8(s1).unwrap());
@@ -73,31 +87,40 @@ impl<'a> RDB<'a> {
 
     fn parse_rstring(input: &[u8]) -> IResult<&[u8], &[u8]> {
         let (mut remainder, length) = nom::number::complete::u8(input)?;
-        dbg!(length);
+        let le = (length & 0b11000000 as u8) >> 6;
 
-        dbg!(length & 0b11000000 as u8);
-        let string_length: u64 = match length & 0b01000000 {
-            00 => {
+        println!("Length Encoding Flags: {:?}", le);
+        let string_length: u64 = match le {
+            0b00 => {
+                // 00   The next 6 bits represent the length
                 let length = length & 0b00111111;
-                dbg!(length);
                 length as u64
             }
-            0x40 => {
+            0b01 => {
                 // 01	Read one additional byte. The combined 14 bits represent the length
-                todo!();
+                let size;
+                (remainder, size) = nom::number::complete::u8(input)?;
+
+                size as u64 + (length as u64) << 8
             }
-            0x80 => {
+            0b10 => {
                 // 10	Discard the remaining 6 bits. The next 4 bytes from the stream represent the length
                 let size;
                 (remainder, size) =
                     nom::number::complete::u64(nom::number::Endianness::Big)(input)?;
-
-                dbg!(size);
                 size
             }
-            0xC0 => {
+            0b11 => {
                 // 11	The next object is encoded in a special format. The remaining 6 bits indicate the format. May be used to store numbers or Strings, see String Encoding
-                todo!();
+                let format = length & 0b00111111;
+                match format {
+                    0 => {
+                        todo!();
+                    }
+                    _=> {
+                        todo!();
+                    }
+                }
             }
             _ => unimplemented!(),
         };

@@ -4,6 +4,7 @@ description = "keyhole is an rdb file parser written in Rust"
 authors = ["Jacob Latonis <@jacoblatonis>"]
 version = "0.1.0"
 edition = "2021"
+exclude = ["tests/"]
 
 [dependencies]
 nom = "7.1.3"
