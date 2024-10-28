@@ -4,31 +4,9 @@ use core::str;
 use nom::bytes::complete::take;
 use nom::IResult;
 
-#[derive(Default, Debug)]
-pub struct RDB<'a> {
-    magic: &'a [u8],
-    version: u32,
-    auxiliary_commands: Vec<AuxiliaryField>,
-}
-
-#[derive(Default, Debug, Clone)]
-struct AuxiliaryField {
-    opcode: u8,
-    key: String,
-    value: String,
-}
+use crate::{AuxiliaryField, RDB};
 
 impl<'a> RDB<'a> {
-    pub fn new(data: &'a [u8]) -> RDB<'a> {
-        let mut r = RDB {
-            ..Default::default()
-        };
-
-        r.parse(data).expect("why fail?");
-
-        r
-    }
-
     pub fn parse(
         &mut self,
         data: &'a [u8],

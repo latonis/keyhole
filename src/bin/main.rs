@@ -7,8 +7,8 @@ fn main() -> io::Result<()> {
     let mut buffer = vec![];
     f.read_to_end(&mut buffer)?;
 
-    let rdb = keyhole::parser::RDB::new(&buffer);
-    
+    let rdb = keyhole::RDB::new(&buffer);
+
     dbg!(rdb);
 
     Ok(())
