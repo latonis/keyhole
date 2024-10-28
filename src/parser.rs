@@ -8,27 +8,38 @@ use nom::IResult;
 pub struct RDB<'a> {
     magic: &'a [u8],
     version: u32,
-    auxiliary_commands: Vec<AuxiliaryCommand>,
+    auxiliary_commands: Vec<AuxiliaryField>,
 }
 
-#[derive(Default, Debug)]
-struct AuxiliaryCommand {
+#[derive(Default, Debug, Clone)]
+struct AuxiliaryField {
     opcode: u8,
-}
-
-#[derive(Default, Debug)]
-struct RedisString {
-    length: u32,
+    key: String,
     value: String,
 }
 
 impl<'a> RDB<'a> {
-    pub fn parse(data: &'a [u8]) -> Result<Self, nom::error::Error<nom::error::ErrorKind>> {
+    pub fn new(data: &'a [u8]) -> RDB<'a> {
+        let mut r = RDB {
+            ..Default::default()
+        };
+
+        r.parse(data).expect("why fail?");
+
+        r
+    }
+
+    pub fn parse(
+        &mut self,
+        data: &'a [u8],
+    ) -> Result<(), nom::error::Error<nom::error::ErrorKind>> {
         let (remaining, magic) = RDB::parse_magic(data).unwrap();
         println!(
             "Magic: {}",
             str::from_utf8(magic).expect("this should be REDIS")
         );
+
+        self.magic = magic;
 
         let (remaining, version) = RDB::parse_version(remaining).unwrap();
         println!(
@@ -41,36 +52,32 @@ impl<'a> RDB<'a> {
             .parse::<u32>()
             .unwrap();
 
-        let mut remaining_parse = remaining;
-        let mut aux_commands = Vec::<AuxiliaryCommand>::new();
+        self.version = version;
 
+        let mut remaining_bytes = remaining;
         loop {
-            let (remaining, opcode) = RDB::parse_auxiliary_field(remaining).unwrap();
-            println!("Aux Field: {:X?}", opcode);
-
+            let (remaining, opcode) = RDB::parse_auxiliary_field(remaining_bytes).unwrap();
             match opcode {
                 // Auxiliary Field
                 0xFA => {
-                    let (remaining, s1) = RDB::parse_rstring(remaining_parse).unwrap();
-                    dbg!(std::str::from_utf8(s1).unwrap());
-                    let (remaining, s2) = RDB::parse_rstring(remaining).unwrap();
-                    dbg!(std::str::from_utf8(s2).unwrap());
-                    remaining_parse = remaining;
+                    let (remaining, k) = self.parse_rstring(remaining).unwrap();
+                    let (remaining, v) = self.parse_rstring(remaining).unwrap();
+
+                    self.auxiliary_commands.push(AuxiliaryField {
+                        opcode,
+                        key: k,
+                        value: v,
+                    });
+
+                    remaining_bytes = remaining;
                 }
                 _ => {
-                    println!("Aux Field: {:X?}", opcode);
+                    println!("Aux Field New: {:X?}", opcode);
                     break;
                 }
             }
-            aux_commands.push(AuxiliaryCommand { opcode });
         }
-
-        Ok(RDB {
-            magic,
-            version,
-            auxiliary_commands: aux_commands,
-            ..Default::default()
-        })
+        Ok(())
     }
 
     fn parse_magic(input: &'a [u8]) -> IResult<&[u8], &[u8]> {
@@ -85,46 +92,88 @@ impl<'a> RDB<'a> {
         nom::number::complete::u8(input)
     }
 
-    fn parse_rstring(input: &[u8]) -> IResult<&[u8], &[u8]> {
-        let (mut remainder, length) = nom::number::complete::u8(input)?;
+    fn get_length_encoded_string(input: &[u8], length: u8) -> IResult<&[u8], String> {
+        let mut remainder = input;
         let le = (length & 0b11000000 as u8) >> 6;
 
         println!("Length Encoding Flags: {:?}", le);
-        let string_length: u64 = match le {
+        let str_value = match le {
             0b00 => {
                 // 00   The next 6 bits represent the length
                 let length = length & 0b00111111;
-                length as u64
+                let bytes;
+                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+                std::str::from_utf8(bytes)
+                    .expect("this should be UTF-8")
+                    .to_string()
             }
             0b01 => {
                 // 01	Read one additional byte. The combined 14 bits represent the length
                 let size;
                 (remainder, size) = nom::number::complete::u8(input)?;
 
-                size as u64 + (length as u64) << 8
+                let length = size as u64 + (length as u64) << 8;
+                let bytes;
+                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+
+                std::str::from_utf8(bytes)
+                    .expect("this should be UTF-8")
+                    .to_string()
             }
             0b10 => {
                 // 10	Discard the remaining 6 bits. The next 4 bytes from the stream represent the length
-                let size;
-                (remainder, size) =
+                let length;
+                (remainder, length) =
                     nom::number::complete::u64(nom::number::Endianness::Big)(input)?;
-                size
+                let bytes;
+                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+
+                std::str::from_utf8(bytes)
+                    .expect("this should be UTF-8")
+                    .to_string()
             }
             0b11 => {
                 // 11	The next object is encoded in a special format. The remaining 6 bits indicate the format. May be used to store numbers or Strings, see String Encoding
                 let format = length & 0b00111111;
                 match format {
                     0 => {
-                        todo!();
+                        let val;
+                        (remainder, val) = nom::number::complete::u8::<&[u8], ()>(remainder)
+                            .expect("valid int needed");
+                        format!("{}", val)
                     }
-                    _=> {
+                    1 => {
+                        let val;
+                        (remainder, val) = nom::number::complete::u16::<&[u8], ()>(
+                            nom::number::Endianness::Big,
+                        )(remainder)
+                        .expect("valid int needed");
+                        format!("{}", val)
+                    }
+                    2 => {
+                        let val;
+                        (remainder, val) = nom::number::complete::u32::<&[u8], ()>(
+                            nom::number::Endianness::Big,
+                        )(remainder)
+                        .expect("valid int needed");
+                        format!("{}", val)
+                    }
+                    _ => {
                         todo!();
                     }
                 }
             }
             _ => unimplemented!(),
-        };
+        }
+        .to_string();
 
-        take(string_length as usize)(remainder)
+        Ok((remainder, str_value))
+    }
+
+    fn parse_rstring<'b>(&mut self, input: &'b [u8]) -> Result<(&'b [u8], String), Error> {
+        let (remainder, length) = nom::number::complete::u8::<&[u8], ()>(input).unwrap();
+
+        let (remainder, val) = Self::get_length_encoded_string(remainder, length).unwrap();
+        Ok((remainder, val))
     }
 }
