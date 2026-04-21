@@ -4,7 +4,19 @@ use core::str;
 use nom::bytes::complete::take;
 use nom::IResult;
 
-use crate::{AuxiliaryField, RDB};
+#[derive(Default, Debug, Clone)]
+pub struct AuxiliaryField {
+    pub opcode: u8,
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Default, Debug)]
+pub struct RDB<'a> {
+    pub magic: &'a [u8],
+    pub version: u32,
+    pub auxiliary_commands: Vec<AuxiliaryField>,
+}
 
 impl<'a> RDB<'a> {
     pub fn parse(
@@ -58,7 +70,7 @@ impl<'a> RDB<'a> {
         Ok(())
     }
 
-    fn parse_magic(input: &'a [u8]) -> IResult<&[u8], &[u8]> {
+    fn parse_magic(input: &'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
         take(5usize)(input)
     }
 
@@ -78,9 +90,9 @@ impl<'a> RDB<'a> {
         let str_value = match le {
             0b00 => {
                 // 00   The next 6 bits represent the length
-                let length = length & 0b00111111;
+                let len = length & 0b00111111;
                 let bytes;
-                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+                (remainder, bytes) = take::<usize, &[u8], ()>(len as usize)(remainder).unwrap();
                 std::str::from_utf8(bytes)
                     .expect("this should be UTF-8")
                     .to_string()
@@ -88,11 +100,11 @@ impl<'a> RDB<'a> {
             0b01 => {
                 // 01	Read one additional byte. The combined 14 bits represent the length
                 let size;
-                (remainder, size) = nom::number::complete::u8(input)?;
+                (remainder, size) = nom::number::complete::u8(remainder)?;
 
-                let length = size as u64 + (length as u64) << 8;
+                let len = size as u64 + (length as u64) << 8;
                 let bytes;
-                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+                (remainder, bytes) = take::<usize, &[u8], ()>(len as usize)(remainder).unwrap();
 
                 std::str::from_utf8(bytes)
                     .expect("this should be UTF-8")
@@ -100,11 +112,11 @@ impl<'a> RDB<'a> {
             }
             0b10 => {
                 // 10	Discard the remaining 6 bits. The next 4 bytes from the stream represent the length
-                let length;
-                (remainder, length) =
-                    nom::number::complete::u64(nom::number::Endianness::Big)(input)?;
+                let len;
+                (remainder, len) =
+                    nom::number::complete::u32(nom::number::Endianness::Big)(remainder)?;
                 let bytes;
-                (remainder, bytes) = take::<usize, &[u8], ()>(length as usize)(remainder).unwrap();
+                (remainder, bytes) = take::<usize, &[u8], ()>(len as usize)(remainder).unwrap();
 
                 std::str::from_utf8(bytes)
                     .expect("this should be UTF-8")
@@ -148,10 +160,16 @@ impl<'a> RDB<'a> {
         Ok((remainder, str_value))
     }
 
-    fn parse_rstring<'b>(&mut self, input: &'b [u8]) -> Result<(&'b [u8], String), Error> {
+    fn parse_rstring<'b>(&mut self, input: &'b [u8]) -> Result<(&'b [u8], String), Error<'_>> {
         let (remainder, length) = nom::number::complete::u8::<&[u8], ()>(input).unwrap();
 
         let (remainder, val) = Self::get_length_encoded_string(remainder, length).unwrap();
         Ok((remainder, val))
+    }
+
+    pub fn new(data: &'a [u8]) -> RDB<'a> {
+        let mut r = RDB::default();
+        r.parse(data).expect("failed to parse RDB");
+        r
     }
 }
