@@ -112,7 +112,7 @@ keyhole/
 
 ## License
 
-This project is provided as-is for educational and development purposes.
+This project is licensed under the [MIT license](LICENSE).
 
 ## Contributing
 
