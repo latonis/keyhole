@@ -1,3 +1,3 @@
 pub mod parser;
 
-pub use parser::{RDB, AuxiliaryField};
+pub use parser::{AuxiliaryField, Database, Entry, RDB, Value};
